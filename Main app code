@@ -1,0 +1,116 @@
+import java.io.*;
+import java.net.*;
+import java.util.*;
+
+public class ChatApp {
+    private static final int PORT = 12345;
+    private static Set<PrintWriter> clientWriters = new HashSet<>();
+
+    public static void main(String[] args) {
+        // Run the server in a separate thread
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runServer();
+            }
+        }).start();
+
+        // Run the client
+        runClient();
+    }
+
+    // Method to run the server
+    private static void runServer() {
+        System.out.println("Server is running...");
+
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+            while (true) {
+                new ClientHandler(serverSocket.accept()).start();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Method to run the client
+    private static void runClient() {
+        try (Socket socket = new Socket("localhost", PORT)) {
+            BufferedReader inputReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter outputWriter = new PrintWriter(socket.getOutputStream(), true);
+
+            // Read user input and send messages to the server
+            BufferedReader userInput = new BufferedReader(new InputStreamReader(System.in));
+            new Thread(new IncomingMessageHandler(inputReader)).start();
+
+            String message;
+            while ((message = userInput.readLine()) != null) {
+                outputWriter.println(message);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Inner class to handle each client connection
+    private static class ClientHandler extends Thread {
+        private Socket socket;
+        private PrintWriter out;
+        private BufferedReader in;
+
+        public ClientHandler(Socket socket) {
+            this.socket = socket;
+        }
+
+        public void run() {
+            try {
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                out = new PrintWriter(socket.getOutputStream(), true);
+
+                synchronized (clientWriters) {
+                    clientWriters.add(out);
+                }
+
+                String message;
+                while ((message = in.readLine()) != null) {
+                    System.out.println("Received: " + message);
+                    synchronized (clientWriters) {
+                        for (PrintWriter writer : clientWriters) {
+                            writer.println(message);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                synchronized (clientWriters) {
+                    clientWriters.remove(out);
+                }
+            }
+        }
+    }
+
+    // Inner class to handle incoming messages in the client
+    private static class IncomingMessageHandler implements Runnable {
+        private BufferedReader inputReader;
+
+        public IncomingMessageHandler(BufferedReader inputReader) {
+            this.inputReader = inputReader;
+        }
+
+        public void run() {
+            try {
+                String message;
+                while ((message = inputReader.readLine()) != null) {
+                    System.out.println("New message: " + message);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
